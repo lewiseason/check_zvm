@@ -9,7 +9,6 @@ from enum import IntEnum
 import argparse
 
 
-
 class service_states(IntEnum):
     ok = 0
     warning = 1
