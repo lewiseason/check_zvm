@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+"""Check the state of VPGs in a ZVM instance."""
+
+from __future__ import print_function
+from sys import exit
+import logging
+import requests
+from enum import IntEnum
+import argparse
+
+
+
+class service_states(IntEnum):
+    ok = 0
+    warning = 1
+    critical = 2
+    unknown = 3
+
+
+class vpg_statuses(IntEnum):
+    initializing = 0
+    meeting_sla = 1
+    not_meeting_sla = 2
+    history_not_meeting_sla = 3
+    rpm_not_meeting_sla = 4
+    failing_over = 5
+    moving = 6
+    deleting = 7
+    recovered = 8
+
+
+def login(url, auth, **kwargs):
+    """
+    Requires a url and (username, password) tuple, and returns a session token
+    to be passed with future requests.
+    """
+
+    url = '{0}/v1/session/add'.format(url)
+
+    response = requests.post(url, auth=auth, verify=kwargs.get('verify', True))
+    response.raise_for_status()
+
+    return response.headers.get('X-Zerto-Session')
+
+
+def get_vpgs(url, session, **kwargs):
+    """
+    Requires a url and session token, and returns a list of VPGs
+    """
+
+    url = '{0}/v1/vpgs'.format(url)
+    headers = {'X-Zerto-Session': session}
+    verify = kwargs.get('verify', True)
+
+    response = requests.get(url, headers=headers, verify=verify)
+    return response.json()
+
+
+def check_vpg_statuses(url, **kwargs):
+    """
+    Return a list of VPGs which meet the SLA and a list of those which don't
+    """
+    session = kwargs.get('session', None)
+
+    if session is None:
+        session = login(url, **kwargs)
+
+    good, bad = [], []
+
+    for vpg in get_vpgs(url, session, **kwargs):
+        name = vpg['VpgName']
+        status = vpg_statuses(vpg['Status'])
+
+        if status == vpg_statuses.meeting_sla:
+            good.append(name)
+        else:
+            bad.append(name)
+
+    return good, bad
+
+
+def main():
+    logging.captureWarnings(True)
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('-u', '--url', type=str, required=True,
+                        help='The URL of the ZVM')
+    parser.add_argument('-n', '--username', type=str, required=True,
+                        help='The Windows username used to authenticate')
+    parser.add_argument('-p', '--password', type=str, required=True,
+                        help='The password for the specified username')
+    parser.add_argument('--no-verify', action='store_false', dest='verify')
+
+    args = parser.parse_args()
+
+    try:
+        auth = (args.username, args.password)
+        result = check_vpg_statuses(args.url, auth=auth, verify=args.verify)
+
+        good, bad = result
+
+        if len(bad) == 0:
+            print("All {0} VPGs meet their SLAs"
+                  .format(len(good)))
+            exit(0)
+        else:
+            print("{0} VPGs are not meeting SLAs: {1}"
+                  .format(len(bad), ', '.join(bad)))
+            exit(2)
+    except Exception as e:
+        print(repr(e))
+        exit(3)
+
+if __name__ == '__main__':
+    main()
