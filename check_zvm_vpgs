@@ -79,7 +79,10 @@ def check_vpg_statuses(url, **kwargs):
 
 
 def main():
-    logging.captureWarnings(True)
+    try:
+        logging.captureWarnings(True)
+    except AttributeError:
+        pass
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-u', '--url', type=str, required=True,
